@@ -1,0 +1,65 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: windows-x64
+            binary: SoulRemnantFontManager.exe
+          - os: ubuntu-22.04
+            artifact: linux-x64
+            binary: soul-remnant-font-manager
+          - os: macos-15-intel
+            artifact: macos-x64
+            binary: soul-remnant-font-manager
+          - os: macos-15
+            artifact: macos-arm64
+            binary: soul-remnant-font-manager
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e . -r requirements-build.txt
+      - name: Test
+        run: python -m unittest discover -s tests -v
+      - name: Build standalone binary
+        run: python build.py
+      - name: Package
+        shell: python
+        run: |
+          import shutil
+          shutil.make_archive("SoulRemnantFontManager-${{ github.ref_name }}-${{ matrix.artifact }}", "zip", "dist")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SoulRemnantFontManager-${{ matrix.artifact }}
+          path: SoulRemnantFontManager-${{ github.ref_name }}-${{ matrix.artifact }}.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true
