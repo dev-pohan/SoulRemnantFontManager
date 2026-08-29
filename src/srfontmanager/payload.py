@@ -98,10 +98,17 @@ def build_payload(
     localization = _replace_once(
         localization,
         '''\tif hUxk0s_ is Control and not hUxk0s_.is_in_group(DbzdOl4):''',
-        '''\tif hUxk0s_ is Control and (not hUxk0s_.is_in_group(DbzdOl4) \\
+        '''\tif (hUxk0s_ is Control or hUxk0s_ is Window) and ( \\
+\t\t\tnot hUxk0s_.is_in_group(DbzdOl4) \\
 \t\t\tor _srfont_path_for_mode(qn86QKV()) != "" \\
 \t\t\tor _srfont_has_size_overrides()):''',
         "固定字型群組排除條件",
+    )
+    localization = _replace_once(
+        localization,
+        "\t\tvar fZBXjsn := hUxk0s_ as Control",
+        "\t\tvar fZBXjsn = hUxk0s_",
+        "Control／Window Theme 節點",
     )
 
     localization = _replace_once(
@@ -154,9 +161,10 @@ def build_payload(
     new_size_loop = '''\t\tvar hkeraqC : Dictionary = epFBHZp.get(PQJofSx, {})
 \t\tvar sr_category_scale := _srfont_size_scale_for(fZBXjsn)
 \t\tfor GjwG6uc in _srfont_size_names(fZBXjsn):
-\t\t\tvar sr_has_override := fZBXjsn.has_theme_font_size_override(GjwG6uc)
+\t\t\tvar sr_has_override : bool = bool(
+\t\t\t\tfZBXjsn.has_theme_font_size_override(GjwG6uc))
 \t\t\tif not hkeraqC.has(GjwG6uc):
-\t\t\t\tvar sr_base_size := fZBXjsn.get_theme_font_size(GjwG6uc)
+\t\t\t\tvar sr_base_size : int = int(fZBXjsn.get_theme_font_size(GjwG6uc))
 \t\t\t\tif sr_base_size <= 0:
 \t\t\t\t\tcontinue
 \t\t\t\thkeraqC[GjwG6uc] = {
@@ -219,7 +227,7 @@ func _srfont_has_size_overrides() -> bool:
 \t\tif not is_equal_approx(float(sr_scale), 1.0):
 \t\t\treturn true
 \treturn false
-func _srfont_control_context(sr_control : Control) -> String:
+func _srfont_control_context(sr_control : Node) -> String:
 \tvar sr_parts := PackedStringArray()
 \tvar sr_cursor : Node = sr_control
 \twhile sr_cursor != null:
@@ -232,7 +240,7 @@ func _srfont_control_context(sr_control : Control) -> String:
 \t\t\tbreak
 \t\tsr_cursor = sr_cursor.get_parent()
 \treturn " ".join(sr_parts)
-func _srfont_size_category(sr_control : Control) -> String:
+func _srfont_size_category(sr_control : Node) -> String:
 \tvar sr_context := _srfont_control_context(sr_control)
 \tif "chatbox" in sr_context or "chat_pop" in sr_context or "chat_message" in sr_context:
 \t\treturn "chat"
@@ -248,9 +256,9 @@ func _srfont_size_category(sr_control : Control) -> String:
 \t\t\tor "map_object" in sr_context or "world_map" in sr_context:
 \t\treturn "hud_world"
 \treturn "general_ui"
-func _srfont_size_scale_for(sr_control : Control) -> float:
+func _srfont_size_scale_for(sr_control : Node) -> float:
 \treturn float(_SRFONT_SIZE_SCALES.get(_srfont_size_category(sr_control), 1.0))
-func _srfont_size_names(sr_control : Control) -> PackedStringArray:
+func _srfont_size_names(sr_control : Node) -> PackedStringArray:
 \tvar sr_names := PackedStringArray()
 \tconst sr_prefix := "theme_override_font_sizes/"
 \tfor sr_property in sr_control.get_property_list():
@@ -296,18 +304,12 @@ func _srfont_refresh_proxies() -> void:
 \t\tqn86QKV(), _SRFONT_PIXEL_PATH, _SRFONT_TRADITIONAL_PATH,
 \t\t_srfont_path_for_mode(qn86QKV()), str(_SRFONT_SIZE_SCALES)])
 func _srfont_node_added(sr_node : Node) -> void:
-\tif not (sr_node is Control):
+\tif not (sr_node is Control or sr_node is Window):
 \t\treturn
-\tif not sr_node.has_meta("_srfont_theme_watch"):
-\t\tsr_node.set_meta("_srfont_theme_watch", true)
-\t\tsr_node.theme_changed.connect(_srfont_theme_changed.bind(sr_node))
 \tif _srfont_path_for_mode(qn86QKV()) == "" and not _srfont_has_size_overrides():
 \t\treturn
 \t_srfont_apply_added.call_deferred(sr_node)
-func _srfont_theme_changed(sr_node : Control) -> void:
-\tif _srfont_path_for_mode(qn86QKV()) != "" or _srfont_has_size_overrides():
-\t\t_srfont_apply_added.call_deferred(sr_node)
-func _srfont_apply_added(sr_node : Node) -> void:
+func _srfont_apply_added(sr_node) -> void:
 \tif is_instance_valid(sr_node) and sr_node.is_inside_tree():
 \t\tIi8vLFF(sr_node, false)
 func _ready() -> void:

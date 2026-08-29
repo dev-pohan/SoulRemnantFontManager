@@ -34,6 +34,7 @@ func _ready() -> void:
 \t\tvar aaPxiCg := sV2xmuS(l6RUQRa)
 func Ii8vLFF(hUxk0s_ : Node) -> void:
 \tif hUxk0s_ is Control and not hUxk0s_.is_in_group(DbzdOl4):
+\t\tvar fZBXjsn := hUxk0s_ as Control
 \t\t\t\t\tvar EBFvvZ6 : Font = fZBXjsn.get_theme_font(GjwG6uc)
 \t\t\t\t\tif EBFvvZ6 == null or not (EBFvvZ6.resource_path in WRZ4D7V):
 \t\t\t\t\t\tcontinue
@@ -78,11 +79,18 @@ func Ii8vLFF(hUxk0s_ : Node) -> void:
         self.assertNotIn("EBFvvZ6.resource_path in WRZ4D7V", localization)
         self.assertIn("bold_italics_font", localization)
         self.assertIn("get_tree().node_added.connect(_srfont_node_added)", localization)
-        self.assertIn("theme_changed.connect(_srfont_theme_changed.bind(sr_node))", localization)
+        self.assertNotIn("theme_changed.connect", localization)
+        self.assertNotIn("_srfont_theme_changed", localization)
         self.assertIn('"general_ui": 0.9', localization)
         self.assertIn("_srfont_size_category", localization)
         self.assertIn("_srfont_size_names", localization)
         self.assertIn("Ii8vLFF(sr_node, false)", localization)
+        self.assertIn("hUxk0s_ is Control or hUxk0s_ is Window", localization)
+        self.assertIn("var fZBXjsn = hUxk0s_", localization)
+        self.assertIn("sr_node is Control or sr_node is Window", localization)
+        self.assertIn("var sr_has_override : bool", localization)
+        self.assertIn("var sr_base_size : int", localization)
+        self.assertIn("_srfont_apply_added(sr_node)", localization)
         self.assertIn("or _srfont_path_for_mode(qn86QKV())", localization)
         self.assertIn("pixel.ttf", localization)
         self.assertIn("traditional.otf", localization)
