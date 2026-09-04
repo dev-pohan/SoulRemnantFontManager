@@ -44,6 +44,8 @@ jobs:
         shell: python
         run: |
           import shutil
+          shutil.copy2("使用說明.txt", "dist/使用說明.txt")
+          shutil.copy2("LICENSE", "dist/LICENSE")
           shutil.make_archive("SoulRemnantFontManager-${{ github.ref_name }}-${{ matrix.artifact }}", "zip", "dist")
       - uses: actions/upload-artifact@v4
         with:

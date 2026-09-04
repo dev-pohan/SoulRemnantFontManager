@@ -107,7 +107,7 @@ def build_payload(
     localization = _replace_once(
         localization,
         "\t\tvar fZBXjsn := hUxk0s_ as Control",
-        "\t\tvar fZBXjsn = hUxk0s_",
+        "\t\tvar fZBXjsn = hUxk0s_\n\t\t_srfont_track_node(fZBXjsn)",
         "Control／Window Theme 節點",
     )
 
@@ -217,7 +217,6 @@ const _SRFONT_TRADITIONAL_PATH : String = {traditional_path}
 const _SRFONT_SIZE_SCALES : Dictionary = {scale_literal}
 var _srfont_external_cache : Dictionary = {{}}
 var _srfont_proxy_cache : Dictionary = {{}}
-var _srfont_proxy_ids : Dictionary = {{}}
 func _srfont_path_for_mode(sr_mode : int) -> String:
 \tif sr_mode == Seoq0MK:
 \t\treturn _SRFONT_TRADITIONAL_PATH
@@ -259,6 +258,11 @@ func _srfont_size_category(sr_control : Node) -> String:
 func _srfont_size_scale_for(sr_control : Node) -> float:
 \treturn float(_SRFONT_SIZE_SCALES.get(_srfont_size_category(sr_control), 1.0))
 func _srfont_size_names(sr_control : Node) -> PackedStringArray:
+\t# Keep the game's original, small list when no category scaling is requested.
+\t# Enumerating every theme property for every short-lived UI node is noticeably
+\t# expensive in busy scenes and can make periodic batches of popups hitch.
+\tif is_equal_approx(_srfont_size_scale_for(sr_control), 1.0):
+\t\treturn PackedStringArray(oun1gb0)
 \tvar sr_names := PackedStringArray()
 \tconst sr_prefix := "theme_override_font_sizes/"
 \tfor sr_property in sr_control.get_property_list():
@@ -280,29 +284,60 @@ func _srfont_load_external(sr_path : String) -> FontFile:
 func srfont_for(sr_original : Font) -> Font:
 \tif sr_original == null:
 \t\treturn sr_original
-\tvar sr_original_id := sr_original.get_instance_id()
-\tif _srfont_proxy_ids.has(sr_original_id):
+\tif sr_original.has_meta("_srfont_proxy"):
 \t\treturn sr_original
+\tvar sr_original_id := sr_original.get_instance_id()
 \tvar sr_active_path := _srfont_path_for_mode(qn86QKV())
 \tif sr_active_path == "" and not (sr_original.resource_path in WRZ4D7V):
 \t\treturn sr_original
 \tvar sr_key := sr_original_id
-\tif not _srfont_proxy_cache.has(sr_key):
-\t\tvar sr_proxy := FontVariation.new()
-\t\t_srfont_proxy_cache[sr_key] = {{"original": sr_original, "proxy": sr_proxy}}
-\t\t_srfont_proxy_ids[sr_proxy.get_instance_id()] = true
-\tvar sr_entry : Dictionary = _srfont_proxy_cache[sr_key]
+\tif _srfont_proxy_cache.has(sr_key):
+\t\tvar sr_cached : Dictionary = _srfont_proxy_cache[sr_key]
+\t\tvar sr_cached_original = sr_cached["original"].get_ref()
+\t\tvar sr_cached_proxy = sr_cached["proxy"].get_ref()
+\t\tif sr_cached_original == sr_original and sr_cached_proxy != null:
+\t\t\tvar sr_cached_custom := _srfont_load_external(sr_active_path)
+\t\t\tvar sr_cached_target : Font = (sr_cached_custom
+\t\t\t\t\tif sr_cached_custom != null else sr_original)
+\t\t\tif sr_cached_proxy.base_font != sr_cached_target:
+\t\t\t\tsr_cached_proxy.base_font = sr_cached_target
+\t\t\treturn sr_cached_proxy
+\t\t_srfont_proxy_cache.erase(sr_key)
+\tvar sr_proxy := FontVariation.new()
+\tsr_proxy.set_meta("_srfont_proxy", true)
+\t_srfont_proxy_cache[sr_key] = {{
+\t\t"original": weakref(sr_original), "proxy": weakref(sr_proxy),
+\t}}
 \tvar sr_custom := _srfont_load_external(sr_active_path)
-\tsr_entry["proxy"].base_font = sr_custom if sr_custom != null else sr_entry["original"]
-\treturn sr_entry["proxy"]
+\tsr_proxy.base_font = sr_custom if sr_custom != null else sr_original
+\treturn sr_proxy
 func _srfont_refresh_proxies() -> void:
 \tvar sr_custom := _srfont_load_external(_srfont_path_for_mode(qn86QKV()))
-\tfor sr_key in _srfont_proxy_cache:
+\tfor sr_key in _srfont_proxy_cache.keys():
 \t\tvar sr_entry : Dictionary = _srfont_proxy_cache[sr_key]
-\t\tsr_entry["proxy"].base_font = sr_custom if sr_custom != null else sr_entry["original"]
+\t\tvar sr_original = sr_entry["original"].get_ref()
+\t\tvar sr_proxy = sr_entry["proxy"].get_ref()
+\t\tif sr_original == null or sr_proxy == null:
+\t\t\t_srfont_proxy_cache.erase(sr_key)
+\t\t\tcontinue
+\t\tvar sr_target : Font = sr_custom if sr_custom != null else sr_original
+\t\t# Assigning the same base font again invalidates shaped text and glyph
+\t\t# caches in Godot. Localization refreshes can arrive in short batches, so
+\t\t# an unconditional write here manifests as several consecutive stalls.
+\t\tif sr_proxy.base_font != sr_target:
+\t\t\tsr_proxy.base_font = sr_target
 \tprint("[SRFONT] ui_font=%d pixel=%s traditional=%s active=%s sizes=%s" % [
 \t\tqn86QKV(), _SRFONT_PIXEL_PATH, _SRFONT_TRADITIONAL_PATH,
 \t\t_srfont_path_for_mode(qn86QKV()), str(_SRFONT_SIZE_SCALES)])
+func _srfont_track_node(sr_node : Node) -> void:
+\tif sr_node.has_meta("_srfont_cleanup"):
+\t\treturn
+\tsr_node.set_meta("_srfont_cleanup", true)
+\tsr_node.tree_exiting.connect(
+\t\t\t_srfont_forget_node.bind(sr_node.get_instance_id()), CONNECT_ONE_SHOT)
+func _srfont_forget_node(sr_id : int) -> void:
+\tOzzd5ZL.erase(sr_id)
+\tepFBHZp.erase(sr_id)
 func _srfont_node_added(sr_node : Node) -> void:
 \tif not (sr_node is Control or sr_node is Window):
 \t\treturn
