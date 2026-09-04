@@ -4,7 +4,9 @@ import json
 import os
 import platform
 import shutil
+import stat
 import sys
+import time
 from pathlib import Path
 
 from .config import data_dir
@@ -21,14 +23,50 @@ def install_executable() -> Path:
     if getattr(sys, "frozen", False):
         source = Path(sys.executable).resolve()
         if source != target.resolve():
-            temporary = target.with_suffix(target.suffix + ".writing")
-            shutil.copy2(source, temporary)
-            os.replace(temporary, target)
+            _replace_managed_executable(source, target)
     else:
         # Development marker; packaged Releases always install a standalone binary.
         target = Path(sys.executable).resolve()
     _write_prelaunch_descriptor(target)
     return target
+
+
+def _replace_managed_executable(source: Path, target: Path) -> None:
+    """Replace the prelaunch runner, recovering from Windows file attributes and brief locks."""
+    temporary = target.with_name(f"{target.name}.{os.getpid()}.writing")
+    legacy_temporary = target.with_suffix(target.suffix + ".writing")
+    try:
+        _unlink_writable(temporary)
+        shutil.copy2(source, temporary)
+        _make_writable(temporary)
+
+        for attempt in range(20):
+            _make_writable(target)
+            try:
+                os.replace(temporary, target)
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.25)
+        _make_writable(target)
+        _unlink_writable(legacy_temporary)
+    finally:
+        _unlink_writable(temporary)
+
+
+def _make_writable(path: Path) -> None:
+    try:
+        path.chmod(path.stat().st_mode | stat.S_IWRITE)
+    except FileNotFoundError:
+        pass
+
+
+def _unlink_writable(path: Path) -> None:
+    if not path.exists():
+        return
+    _make_writable(path)
+    path.unlink()
 
 
 def refresh_existing_install() -> bool:
