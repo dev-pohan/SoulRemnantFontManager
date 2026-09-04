@@ -160,9 +160,12 @@ def build_payload(
 \t\t\tepFBHZp[PQJofSx] = hkeraqC'''
     new_size_loop = '''\t\tvar hkeraqC : Dictionary = epFBHZp.get(PQJofSx, {})
 \t\tvar sr_category_scale := _srfont_size_scale_for(fZBXjsn)
-\t\tfor GjwG6uc in _srfont_size_names(fZBXjsn):
+\t\tfor GjwG6uc in _srfont_size_names(fZBXjsn, sr_category_scale):
 \t\t\tvar sr_has_override : bool = bool(
 \t\t\t\tfZBXjsn.has_theme_font_size_override(GjwG6uc))
+\t\t\tif is_equal_approx(sr_category_scale, 1.0) \\
+\t\t\t\t\tand not hkeraqC.has(GjwG6uc) and not sr_has_override:
+\t\t\t\tcontinue
 \t\t\tif not hkeraqC.has(GjwG6uc):
 \t\t\t\tvar sr_base_size : int = int(fZBXjsn.get_theme_font_size(GjwG6uc))
 \t\t\t\tif sr_base_size <= 0:
@@ -217,6 +220,11 @@ const _SRFONT_TRADITIONAL_PATH : String = {traditional_path}
 const _SRFONT_SIZE_SCALES : Dictionary = {scale_literal}
 var _srfont_external_cache : Dictionary = {{}}
 var _srfont_proxy_cache : Dictionary = {{}}
+var _srfont_size_names_cache : Dictionary = {{}}
+var _srfont_pending_nodes : Dictionary = {{}}
+var _srfont_flush_scheduled := false
+var _srfont_flush_count := 0
+var _srfont_generation := 0
 func _srfont_path_for_mode(sr_mode : int) -> String:
 \tif sr_mode == Seoq0MK:
 \t\treturn _SRFONT_TRADITIONAL_PATH
@@ -257,18 +265,22 @@ func _srfont_size_category(sr_control : Node) -> String:
 \treturn "general_ui"
 func _srfont_size_scale_for(sr_control : Node) -> float:
 \treturn float(_SRFONT_SIZE_SCALES.get(_srfont_size_category(sr_control), 1.0))
-func _srfont_size_names(sr_control : Node) -> PackedStringArray:
+func _srfont_size_names(sr_control : Node, sr_scale : float) -> PackedStringArray:
 \t# Keep the game's original, small list when no category scaling is requested.
 \t# Enumerating every theme property for every short-lived UI node is noticeably
 \t# expensive in busy scenes and can make periodic batches of popups hitch.
-\tif is_equal_approx(_srfont_size_scale_for(sr_control), 1.0):
+\tif is_equal_approx(sr_scale, 1.0):
 \t\treturn PackedStringArray(oun1gb0)
+\tvar sr_class := sr_control.get_class()
+\tif _srfont_size_names_cache.has(sr_class):
+\t\treturn PackedStringArray(_srfont_size_names_cache[sr_class])
 \tvar sr_names := PackedStringArray()
 \tconst sr_prefix := "theme_override_font_sizes/"
 \tfor sr_property in sr_control.get_property_list():
 \t\tvar sr_name := str(sr_property.get("name", ""))
 \t\tif sr_name.begins_with(sr_prefix):
 \t\t\tsr_names.append(sr_name.trim_prefix(sr_prefix))
+\t_srfont_size_names_cache[sr_class] = sr_names
 \treturn sr_names
 func _srfont_load_external(sr_path : String) -> FontFile:
 \tif sr_path == "":
@@ -312,6 +324,7 @@ func srfont_for(sr_original : Font) -> Font:
 \tsr_proxy.base_font = sr_custom if sr_custom != null else sr_original
 \treturn sr_proxy
 func _srfont_refresh_proxies() -> void:
+\t_srfont_generation += 1
 \tvar sr_custom := _srfont_load_external(_srfont_path_for_mode(qn86QKV()))
 \tfor sr_key in _srfont_proxy_cache.keys():
 \t\tvar sr_entry : Dictionary = _srfont_proxy_cache[sr_key]
@@ -330,6 +343,7 @@ func _srfont_refresh_proxies() -> void:
 \t\tqn86QKV(), _SRFONT_PIXEL_PATH, _SRFONT_TRADITIONAL_PATH,
 \t\t_srfont_path_for_mode(qn86QKV()), str(_SRFONT_SIZE_SCALES)])
 func _srfont_track_node(sr_node : Node) -> void:
+\tsr_node.set_meta("_srfont_applied_generation", _srfont_generation)
 \tif sr_node.has_meta("_srfont_cleanup"):
 \t\treturn
 \tsr_node.set_meta("_srfont_cleanup", true)
@@ -343,10 +357,40 @@ func _srfont_node_added(sr_node : Node) -> void:
 \t\treturn
 \tif _srfont_path_for_mode(qn86QKV()) == "" and not _srfont_has_size_overrides():
 \t\treturn
-\t_srfont_apply_added.call_deferred(sr_node)
-func _srfont_apply_added(sr_node) -> void:
-\tif is_instance_valid(sr_node) and sr_node.is_inside_tree():
-\t\tIi8vLFF(sr_node, false)
+\t_srfont_pending_nodes[sr_node.get_instance_id()] = weakref(sr_node)
+\tif not _srfont_flush_scheduled:
+\t\t_srfont_flush_scheduled = true
+\t\t_srfont_flush_added.call_deferred()
+func _srfont_flush_added() -> void:
+\t_srfont_flush_scheduled = false
+\tvar sr_batch : Dictionary = _srfont_pending_nodes
+\t_srfont_pending_nodes = {{}}
+\tvar sr_nodes : Dictionary = {{}}
+\tfor sr_id in sr_batch:
+\t\tvar sr_node = sr_batch[sr_id].get_ref()
+\t\tif sr_node != null and sr_node.is_inside_tree() \\
+\t\t\t\tand int(sr_node.get_meta("_srfont_applied_generation", -1)) != _srfont_generation:
+\t\t\tsr_nodes[sr_id] = sr_node
+\tfor sr_id in sr_nodes.keys():
+\t\tvar sr_node : Node = sr_nodes[sr_id]
+\t\tvar sr_parent := sr_node.get_parent()
+\t\twhile sr_parent != null:
+\t\t\tvar sr_parent_id := sr_parent.get_instance_id()
+\t\t\tif sr_nodes.has(sr_parent_id):
+\t\t\t\tsr_nodes.erase(sr_id)
+\t\t\t\tbreak
+\t\t\tsr_parent = sr_parent.get_parent()
+\tfor sr_node in sr_nodes.values():
+\t\tif is_instance_valid(sr_node) and sr_node.is_inside_tree():
+\t\t\tIi8vLFF(sr_node)
+\t_srfont_flush_count += 1
+\tif _srfont_flush_count % 32 == 0:
+\t\t_srfont_prune_dead_proxies()
+func _srfont_prune_dead_proxies() -> void:
+\tfor sr_key in _srfont_proxy_cache.keys():
+\t\tvar sr_entry : Dictionary = _srfont_proxy_cache[sr_key]
+\t\tif sr_entry["original"].get_ref() == null or sr_entry["proxy"].get_ref() == null:
+\t\t\t_srfont_proxy_cache.erase(sr_key)
 func _ready() -> void:
 \tget_tree().node_added.connect(_srfont_node_added)
 '''
