@@ -40,6 +40,16 @@ def build_payload(
     traditional_path = _gd_path(traditional_font_path)
     scales = _validated_scales(size_scales)
     scale_literal = json.dumps(scales, ensure_ascii=False, sort_keys=True)
+    scale_values = list(scales.values())
+    uniform_scale = (
+        scale_values[0]
+        if all(math.isclose(value, scale_values[0], abs_tol=0.0001) for value in scale_values)
+        else -1.0
+    )
+    uniform_scale_literal = json.dumps(uniform_scale)
+    has_size_overrides_literal = str(
+        any(not math.isclose(value, 1.0, abs_tol=0.0001) for value in scale_values)
+    ).lower()
 
     old_loader = '''\tvar PI1O0tA : Font = null
 \tif r9CenZs != "" and ResourceLoader.exists(r9CenZs):
@@ -69,11 +79,12 @@ def build_payload(
 \t\t\tand PKAwIwN.resource_path in WRZ4D7V:
 \t\treturn k54CPsP
 \treturn PKAwIwN'''
-    new_nh = '''func nhTAj3u(PKAwIwN : Font) -> Font:
+    new_nh = '''func nhTAj3u(PKAwIwN : Font, sr_active_path = null,
+\t\tsr_active_font : Font = null) -> Font:
 \tif k54CPsP != null and PKAwIwN != null \\
 \t\t\tand PKAwIwN.resource_path in WRZ4D7V:
-\t\treturn srfont_for(k54CPsP)
-\treturn srfont_for(PKAwIwN)'''
+\t\treturn srfont_for(k54CPsP, sr_active_path, sr_active_font)
+\treturn srfont_for(PKAwIwN, sr_active_path, sr_active_font)'''
     localization = _replace_once(localization, old_nh, new_nh, "直接字型轉換函式")
 
     old_yq = '''func YQUTyMs() -> bool:
@@ -100,7 +111,7 @@ def build_payload(
         '''\tif hUxk0s_ is Control and not hUxk0s_.is_in_group(DbzdOl4):''',
         '''\tif (hUxk0s_ is Control or hUxk0s_ is Window) and ( \\
 \t\t\tnot hUxk0s_.is_in_group(DbzdOl4) \\
-\t\t\tor _srfont_path_for_mode(qn86QKV()) != "" \\
+\t\t\tor str(sr_active_path) != "" \\
 \t\t\tor _srfont_has_size_overrides()):''',
         "固定字型群組排除條件",
     )
@@ -114,8 +125,20 @@ def build_payload(
     localization = _replace_once(
         localization,
         "func Ii8vLFF(hUxk0s_ : Node) -> void:",
-        "func Ii8vLFF(hUxk0s_ : Node, sr_recurse : bool = true) -> void:",
+        '''func Ii8vLFF(hUxk0s_ : Node, sr_recurse : bool = true,
+\t\tsr_active_path = null, sr_active_font : Font = null) -> void:''',
         "UI 遞迴函式",
+    )
+    localization = _replace_once(
+        localization,
+        '''\tif hUxk0s_ == null:
+\t\treturn''',
+        '''\tif hUxk0s_ == null:
+\t\treturn
+\tif sr_active_path == null:
+\t\tsr_active_path = _srfont_path_for_mode(qn86QKV())
+\t\tsr_active_font = _srfont_load_external(str(sr_active_path))''',
+        "UI 字型執行環境",
     )
     localization = _replace_once(
         localization,
@@ -124,14 +147,14 @@ def build_payload(
         '''\tif not sr_recurse:
 \t\treturn
 \tfor agM_aRO in hUxk0s_.get_children(true):
-\t\tIi8vLFF(agM_aRO)''',
+\t\tIi8vLFF(agM_aRO, true, sr_active_path, sr_active_font)''',
         "UI 子節點遞迴位置",
     )
 
     localization = _replace_once(
         localization,
         "\t\t\tvar Ql0hEW5 : Font = k54CPsP if k54CPsP != null else a6l1_JC[GjwG6uc]",
-        "\t\t\tvar Ql0hEW5 : Font = nhTAj3u(a6l1_JC[GjwG6uc])",
+        "\t\t\tvar Ql0hEW5 : Font = nhTAj3u(a6l1_JC[GjwG6uc], sr_active_path, sr_active_font)",
         "UI 字型覆寫位置",
     )
     localization = _replace_once(
@@ -218,8 +241,12 @@ def build_payload(
     helpers = f'''const _SRFONT_PIXEL_PATH : String = {pixel_path}
 const _SRFONT_TRADITIONAL_PATH : String = {traditional_path}
 const _SRFONT_SIZE_SCALES : Dictionary = {scale_literal}
+const _SRFONT_HAS_SIZE_OVERRIDES : bool = {has_size_overrides_literal}
+const _SRFONT_UNIFORM_SIZE_SCALE : float = {uniform_scale_literal}
 var _srfont_external_cache : Dictionary = {{}}
 var _srfont_proxy_cache : Dictionary = {{}}
+var _srfont_proxy_path_initialized := false
+var _srfont_last_proxy_path := ""
 var _srfont_size_names_cache : Dictionary = {{}}
 var _srfont_pending_nodes : Dictionary = {{}}
 var _srfont_flush_scheduled := false
@@ -230,10 +257,7 @@ func _srfont_path_for_mode(sr_mode : int) -> String:
 \t\treturn _SRFONT_TRADITIONAL_PATH
 \treturn _SRFONT_PIXEL_PATH
 func _srfont_has_size_overrides() -> bool:
-\tfor sr_scale in _SRFONT_SIZE_SCALES.values():
-\t\tif not is_equal_approx(float(sr_scale), 1.0):
-\t\t\treturn true
-\treturn false
+\treturn _SRFONT_HAS_SIZE_OVERRIDES
 func _srfont_control_context(sr_control : Node) -> String:
 \tvar sr_parts := PackedStringArray()
 \tvar sr_cursor : Node = sr_control
@@ -264,6 +288,8 @@ func _srfont_size_category(sr_control : Node) -> String:
 \t\treturn "hud_world"
 \treturn "general_ui"
 func _srfont_size_scale_for(sr_control : Node) -> float:
+\tif _SRFONT_UNIFORM_SIZE_SCALE >= 0.0:
+\t\treturn _SRFONT_UNIFORM_SIZE_SCALE
 \treturn float(_SRFONT_SIZE_SCALES.get(_srfont_size_category(sr_control), 1.0))
 func _srfont_size_names(sr_control : Node, sr_scale : float) -> PackedStringArray:
 \t# Keep the game's original, small list when no category scaling is requested.
@@ -293,13 +319,15 @@ func _srfont_load_external(sr_path : String) -> FontFile:
 \t\treturn null
 \t_srfont_external_cache[sr_path] = sr_font
 \treturn sr_font
-func srfont_for(sr_original : Font) -> Font:
+func srfont_for(sr_original : Font, sr_active_path_override = null,
+\t\tsr_active_font : Font = null) -> Font:
 \tif sr_original == null:
 \t\treturn sr_original
 \tif sr_original.has_meta("_srfont_proxy"):
 \t\treturn sr_original
 \tvar sr_original_id := sr_original.get_instance_id()
-\tvar sr_active_path := _srfont_path_for_mode(qn86QKV())
+\tvar sr_active_path := (str(sr_active_path_override) if sr_active_path_override != null
+\t\t\telse _srfont_path_for_mode(qn86QKV()))
 \tif sr_active_path == "" and not (sr_original.resource_path in WRZ4D7V):
 \t\treturn sr_original
 \tvar sr_key := sr_original_id
@@ -308,7 +336,8 @@ func srfont_for(sr_original : Font) -> Font:
 \t\tvar sr_cached_original = sr_cached["original"].get_ref()
 \t\tvar sr_cached_proxy = sr_cached["proxy"].get_ref()
 \t\tif sr_cached_original == sr_original and sr_cached_proxy != null:
-\t\t\tvar sr_cached_custom := _srfont_load_external(sr_active_path)
+\t\t\tvar sr_cached_custom := (sr_active_font if sr_active_path_override != null
+\t\t\t\t\telse _srfont_load_external(sr_active_path))
 \t\t\tvar sr_cached_target : Font = (sr_cached_custom
 \t\t\t\t\tif sr_cached_custom != null else sr_original)
 \t\t\tif sr_cached_proxy.base_font != sr_cached_target:
@@ -320,12 +349,18 @@ func srfont_for(sr_original : Font) -> Font:
 \t_srfont_proxy_cache[sr_key] = {{
 \t\t"original": weakref(sr_original), "proxy": weakref(sr_proxy),
 \t}}
-\tvar sr_custom := _srfont_load_external(sr_active_path)
+\tvar sr_custom := (sr_active_font if sr_active_path_override != null
+\t\t\telse _srfont_load_external(sr_active_path))
 \tsr_proxy.base_font = sr_custom if sr_custom != null else sr_original
 \treturn sr_proxy
 func _srfont_refresh_proxies() -> void:
 \t_srfont_generation += 1
-\tvar sr_custom := _srfont_load_external(_srfont_path_for_mode(qn86QKV()))
+\tvar sr_active_path := _srfont_path_for_mode(qn86QKV())
+\tif _srfont_proxy_path_initialized and sr_active_path == _srfont_last_proxy_path:
+\t\treturn
+\t_srfont_proxy_path_initialized = true
+\t_srfont_last_proxy_path = sr_active_path
+\tvar sr_custom := _srfont_load_external(sr_active_path)
 \tfor sr_key in _srfont_proxy_cache.keys():
 \t\tvar sr_entry : Dictionary = _srfont_proxy_cache[sr_key]
 \t\tvar sr_original = sr_entry["original"].get_ref()

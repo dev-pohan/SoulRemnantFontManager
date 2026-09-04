@@ -1,7 +1,12 @@
 from pathlib import Path
 from unittest import TestCase
 
-from srfontmanager.payload import DIRECT_FONT_SCRIPTS, LOCALIZATION_PATH, build_payload
+from srfontmanager.payload import (
+    DIRECT_FONT_SCRIPTS,
+    LOCALIZATION_PATH,
+    SIZE_CATEGORIES,
+    build_payload,
+)
 
 
 class PayloadTests(TestCase):
@@ -33,6 +38,8 @@ func _ready() -> void:
 \tif Vy6tJob != 1.0 or BpAubGA or k54CPsP != sXYbyrG:
 \t\tvar aaPxiCg := sV2xmuS(l6RUQRa)
 func Ii8vLFF(hUxk0s_ : Node) -> void:
+\tif hUxk0s_ == null:
+\t\treturn
 \tif hUxk0s_ is Control and not hUxk0s_.is_in_group(DbzdOl4):
 \t\tvar fZBXjsn := hUxk0s_ as Control
 \t\t\t\t\tvar EBFvvZ6 : Font = fZBXjsn.get_theme_font(GjwG6uc)
@@ -104,6 +111,16 @@ func Ii8vLFF(hUxk0s_ : Node) -> void:
         self.assertIn('_srfont_size_names(fZBXjsn, sr_category_scale)', localization)
         self.assertIn("_srfont_size_names_cache", localization)
         self.assertNotIn("_srfont_apply_added", localization)
+        self.assertIn("const _SRFONT_HAS_SIZE_OVERRIDES : bool = true", localization)
+        self.assertIn("const _SRFONT_UNIFORM_SIZE_SCALE : float = -1.0", localization)
+        self.assertIn("return _SRFONT_HAS_SIZE_OVERRIDES", localization)
+        self.assertIn("_srfont_proxy_path_initialized", localization)
+        self.assertIn("sr_active_path == _srfont_last_proxy_path", localization)
+        self.assertIn("sr_active_font : Font = null", localization)
+        self.assertIn('or str(sr_active_path) != ""', localization)
+        self.assertIn(
+            "Ii8vLFF(agM_aRO, true, sr_active_path, sr_active_font)", localization
+        )
         self.assertIn("or _srfont_path_for_mode(qn86QKV())", localization)
         self.assertIn("pixel.ttf", localization)
         self.assertIn("traditional.otf", localization)
@@ -112,3 +129,14 @@ func Ii8vLFF(hUxk0s_ : Node) -> void:
         self.assertEqual(set(result), {LOCALIZATION_PATH, *DIRECT_FONT_SCRIPTS})
         self.assertIn("var test_font = Localization.srfont_for(load(", result[DIRECT_FONT_SCRIPTS[0]].decode())
         self.assertIn("var mLO6BLl : Font = Localization.srfont_for(load(", result["Scenes/UI/auto_potion_panel.gd"].decode())
+
+        uniform_result = build_payload(
+            source,
+            Path("C:/Fonts/pixel.ttf"),
+            Path("C:/Fonts/traditional.otf"),
+            {category: 0.72 for category in SIZE_CATEGORIES},
+        )
+        uniform_localization = uniform_result[LOCALIZATION_PATH].decode()
+        self.assertIn(
+            "const _SRFONT_UNIFORM_SIZE_SCALE : float = 0.72", uniform_localization
+        )
